@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Admin Panel</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #1E3A5F;
+            color: white;
+            text-align: center;
+        }
+        h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+        .question-box {
+            width: 80%;
+            margin: auto;
+            font-size: 28px;
+            background: #D0E1F9;
+            color: black;
+            padding: 15px;
+            font-weight: bold;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+        .answer-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            width: 60%;
+            margin: 20px auto;
+        }
+        .answer-box {
+            width: 100%;
+            height: 80px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 10px;
+            background: #0056b3;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .answer-box.active {
+            background: #FFD700;
+            color: black;
+        }
+        .timer-box {
+            font-size: 50px;
+            font-weight: bold;
+            background: red;
+            color: white;
+            width: 100px;
+            height: 80px;
+            margin: 10px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+        }
+        .x-container {
+            font-size: 50px;
+            color: red;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .team-selection {
+            margin: 20px 0;
+            font-size: 20px;
+        }
+        .team-selection input {
+            margin: 0 10px;
+        }
+        .score-display {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px;
+        }
+        button {
+            background: #FFD700;
+            border: none;
+            padding: 10px 20px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Admin Panel</h1>
+
+    <div class="team-selection">
+        <label><input type="radio" name="preMatchWinner" value="team1" onclick="setPreMatchWinner('team1')"> Team 1</label>
+        <label><input type="radio" name="preMatchWinner" value="team2" onclick="setPreMatchWinner('team2')"> Team 2</label>
+    </div>
+
+    <div class="timer-box" id="timer">3</div>
+    <button onclick="startTimer()">Start Timer</button>
+    <button onclick="resetTimer()">Restart Timer</button>
+
+    <div class="x-container" id="xIndicator"></div>
+        <div><span id="prewin-label"></span> <span id="team1-x"></span></div>
+        <div><span id="prelose-label"></span> <span id="team2-x"></span></div>
+        <button onclick="minusLife()">Minus 1 Life</button>
+
+    
+    <div class="question-box" id="questionText">Waiting for question...</div>
+    <div class="answer-container" id="answers"></div>
+
+    <div class="score-display">TEAM 1 Score: <span id="team1-score">0</span></div>
+    <div class="score-display">TEAM 2 Score: <span id="team2-score">0</span></div>
+
+
+    
+<script>
+const socket = new WebSocket("ws://localhost:8080");
+let clickedAnswers = new Set();
+let timerValue = 3;
+let timerInterval;
+
+let prewin = null;
+let prelose = null;
+let prewin_life = 3;
+let prelose_life = 0;
+let stored_points = 0;
+let total_answer_count = 0;
+let current_answer_count = 0;
+
+let round = 1; // Starts at Round 1
+const maxRounds = 3; // Max 3 rounds
+let multiplier = 1; // Multiplier (starts at 1 for Round 1)
+let scoreAwarded = false;
+
+// WebSocket Connection
+socket.onopen = function () {
+    console.log("✅ Connected to WebSocket server");
+    socket.send(JSON.stringify({ type: "register", clientId: "admin" }));
+};
+
+// Set the pre-match winner
+function setPreMatchWinner(team) {
+    prewin = team;
+    prelose = team === "team1" ? "team2" : "team1";
+    console.log(`🏆 Prematch Winner: ${prewin} | ❌ Loser: ${prelose}`);
+
+    // Ensure the elements exist before setting innerText
+    let prewinLabel = document.getElementById("prewin-label");
+    let preloseLabel = document.getElementById("prelose-label");
+
+    if (prewinLabel) prewinLabel.innerText = `${prewin}:`;
+    if (preloseLabel) preloseLabel.innerText = `${prelose}:`;
+
+    resetXIndicators();
+}
+
+// Receive data from WebSocket
+socket.onmessage = function (event) {
+    let data = JSON.parse(event.data);
+    if (data.type === "question_selected") {
+        document.getElementById("questionText").innerText = data.question;
+        let answerContainer = document.getElementById("answers");
+        answerContainer.innerHTML = "";
+        clickedAnswers.clear();
+
+        stored_points = 0;
+        total_answer_count = data.answers.length;
+        current_answer_count = 0;
+        scoreAwarded = false;
+
+        data.answers.forEach((answer, index) => {
+            let answerDiv = document.createElement("div");
+            answerDiv.classList.add("answer-box");
+            answerDiv.innerText = `${answer}`;
+            answerDiv.onclick = () => handleAnswerClick(answer, data.points[index], answerDiv);
+            answerContainer.appendChild(answerDiv);
+        });
+
+        // Start a new round
+        startNewRound();
+    }
+};
+
+// Start a new round
+function startNewRound() {
+    if (round > maxRounds) return; // Prevent extra rounds
+
+    multiplier = round; // Set multiplier based on the round
+    console.log(`🔄 Starting Round ${round} (Multiplier: x${multiplier})`);
+
+    prewin_life = 3;
+    prelose_life = 0;
+    stored_points = 0;
+    current_answer_count = 0;
+    scoreAwarded = false;
+
+    round++; // Move to the next round
+}
+
+
+// Function: Handle Answer Click
+function handleAnswerClick(answer, points, element) {
+    if (clickedAnswers.has(answer)) return; // Prevent duplicate clicks
+    if (scoreAwarded) {
+        console.log(`⚠️ Answer Clicked: ${answer} (No points added - score already awarded)`);
+        return;
+    }
+
+    clickedAnswers.add(answer);
+    element.classList.add("active");
+    current_answer_count++;
+
+    let pointsToAdd = points * multiplier; // Multiply points by round multiplier
+    stored_points += pointsToAdd;
+    console.log(`📊 Points for "${answer}" after multiplying by round multiplier (x${multiplier}): ${pointsToAdd}`);
+
+    // Ensure the scores are always numbers
+    function getScore(team) {
+        let element = document.getElementById(`${team}-score`);
+        return element ? parseInt(element.innerText) || 0 : 0; // Default to 0 if NaN
+    }
+
+    function setScore(team, score) {
+        let element = document.getElementById(`${team}-score`);
+        if (element) element.innerText = score; // Update score display
+    }
+
+    if (prewin_life === 0 && prelose_life === 1) {
+        // If prewin lost all lives and prelose has 1 life, award points to prelose
+        let preloseScore = getScore(prelose);
+        let newScore = preloseScore + stored_points;
+        setScore(prelose, newScore);
+        console.log(`✅ Total Score Added to ${prelose}: ${stored_points} (New Total: ${newScore})`);
+
+        // Mark prelose as the winner
+        markWinner(prelose);
+        stored_points = 0;
+        scoreAwarded = true;
+    } 
+    else if (prewin_life > 0 && current_answer_count === total_answer_count) {
+        // If prewin still has lives and all answers are clicked, award points to prewin
+        let prewinScore = getScore(prewin);
+        let newScore = prewinScore + stored_points;
+        setScore(prewin, newScore);
+        console.log(`✅ Total Score Added to ${prewin}: ${stored_points} (New Total: ${newScore})`);
+
+        stored_points = 0;
+        scoreAwarded = true;
+    }
+
+    // Send answer selection event via WebSocket
+    socket.send(JSON.stringify({ type: "answer_selected", answer, pointsToAdd }));
+}
+
+// Function: Minus Life
+function minusLife() {
+    if (prewin_life > 0) {
+        prewin_life--;
+        console.log(`⚠️ ${prewin} loses 1 life. Remaining: ${prewin_life}`);
+
+        if (prewin_life === 0) {
+            prelose_life = 1;
+            console.log(`❌ ${prelose} gains 1 life (fixed at 1).`);
+        }
+    } 
+    else if (prewin_life === 0 && prelose_life === 1) {
+        prelose_life = 0;
+
+        let finalPoints = stored_points;
+        console.log(`🎉 ${prewin} gains ${finalPoints} points!`);
+
+        let prewinScoreElement = document.getElementById(`${prewin}-score`);
+        if (prewinScoreElement) {
+            let currentScore = parseInt(prewinScoreElement.innerText) || 0;
+            prewinScoreElement.innerText = currentScore + finalPoints;
+            console.log(`✅ ${prewin} Score Updated: ${currentScore + finalPoints}`);
+
+            // Mark prewin as the winner
+            markWinner(prelose);
+        } else {
+            console.error(`⚠️ ERROR: Could not find element for ${prewin}-score.`);
+        }
+
+        stored_points = 0;
+    }
+
+    updateXIndicator();
+}
+
+// Function: Mark Winner
+function markWinner(team) {
+    let indicator = document.getElementById(`${team}-x`);
+    if (indicator) {
+        indicator.innerHTML = "🏆 Winner"; // Display Winner instead of Xs
+    }
+}
+
+// Function: Reset X Indicators (Clears Past Xs or Winner Label)
+function resetXIndicators() {
+    prewin_life = 3; // Reset prewin life to full
+    prelose_life = 0; // Reset prelose life to none
+    updateXIndicator(); // Refresh the X indicators
+}
+
+// Function: Update X Indicator (Ensure No Past Xs are Displayed)
+function updateXIndicator() {
+    let prewinX = document.getElementById("team1-x");
+    let preloseX = document.getElementById("team2-x");
+
+    // Reset X display (No default X)
+    prewinX.innerHTML = "";
+    preloseX.innerHTML = "";
+
+    // Change the labels to reflect correct teams
+    document.getElementById("prewin-label").innerText = `${prewin}:`;
+    document.getElementById("prelose-label").innerText = `${prelose}:`;
+
+    // Add Xs dynamically as lives are lost (only when needed)
+    for (let i = 0; i < (3 - prewin_life); i++) {
+        let xIcon = document.createElement("span");
+        xIcon.innerText = "❌";
+        prewinX.appendChild(xIcon);
+    }
+
+    // Display Xs for prelose only when they lose a life (not when gaining one)
+    if (prelose_life === 0) {
+        preloseX.innerHTML = ""; // Keep blank until a life is lost
+    } else {
+        for (let i = 0; i < (1 - prelose_life); i++) {
+            let xIcon = document.createElement("span");
+            xIcon.innerText = "❌";
+            preloseX.appendChild(xIcon);
+        }
+    }
+
+    // If the game is won by either team, replace Xs with "Winner"
+    if (prelose_life === 0 && prewin_life === 0) {
+        prewinX.innerText = "🏆 Winner";
+        preloseX.innerText = "";
+    }
+}
+</script>
+
+
+    <script>
+    
+        // Start Timer
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerValue = 3;
+            document.getElementById("timer").innerText = timerValue;
+    
+            timerInterval = setInterval(() => {
+                timerValue--;
+                document.getElementById("timer").innerText = timerValue;
+                socket.send(JSON.stringify({ type: "update_timer", timer: timerValue }));
+    
+                if (timerValue <= 0) {
+                    clearInterval(timerInterval);
+                    minusLife();
+                }
+            }, 1000);
+        }
+    
+        // Reset Timer
+        function resetTimer() {
+            clearInterval(timerInterval);
+            document.getElementById("timer").innerText = "3";
+            socket.send(JSON.stringify({ type: "update_timer", timer: 3 }));
+        }
+    
+    </script>
+    
+    
+</body>
+</html>

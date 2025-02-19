@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Monitor</title>
+</head>
+<body>
+    <h1 id="monitor-title">Monitor</h1>
+    <p id="data">Waiting for updates...</p>
+
+    <script>
+        const monitorId = prompt("Enter Monitor ID (e.g., monitor1, monitor2)");
+        document.getElementById("monitor-title").innerText = "Monitor " + monitorId;
+
+        const socket = new WebSocket("ws://localhost:8080");
+
+        socket.onopen = function () {
+            console.log(`✅ Connected to WebSocket server as ${monitorId}`);
+
+            // Register this monitor with the server
+            socket.send(JSON.stringify({ type: "register", monitorId: monitorId }));
+        };
+
+        socket.onmessage = function (event) {
+            console.log("📩 Raw message received:", event.data); // Debugging log
+
+            // Handle Blob messages
+            if (event.data instanceof Blob) {
+                let reader = new FileReader();
+                reader.onload = function () {
+                    let data = JSON.parse(reader.result);
+                    handleMessage(data);
+                };
+                reader.readAsText(event.data);
+            } else {
+                // Handle normal text messages
+                let data = JSON.parse(event.data);
+                handleMessage(data);
+            }
+        };
+
+        function handleMessage(data) {
+            if (data.monitorId === monitorId) {
+                document.getElementById("data").innerText = "Received: " + data.text;
+                console.log("📩 Displaying message:", data.text);
+            } else {
+                console.log(`🔍 Ignoring message meant for ${data.monitorId}`);
+            }
+        }
+
+        socket.onerror = function (error) {
+            console.error("❌ WebSocket Error:", error);
+        };
+
+        socket.onclose = function () {
+            console.log("🔴 WebSocket connection closed");
+        };
+    </script>
+</body>
+</html>

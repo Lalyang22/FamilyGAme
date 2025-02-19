@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Monitor 3</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: #1E3A5F;
+            color: white;
+        }
+
+        h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        .score-box {
+            width: 120px;
+            height: 80px;
+            font-size: 50px;
+            font-weight: bold;
+            background: #0A74DA;
+            color: white;
+            margin: 20px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .x-container {
+            font-size: 50px;
+            color: red;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .answer-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            width: 60%;
+            margin: 20px auto;
+        }
+
+        .flip-container {
+            perspective: 1000px;
+        }
+
+        .flip-card {
+            width: 100%;
+            height: 80px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 10px;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.6s;
+            background: #0056b3;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .flipped {
+            transform: rotateX(180deg);
+        }
+
+        .flipped span {
+            transform: rotateX(180deg);
+            display: inline-block;
+        }
+
+        .points-container {
+            width: 50px;
+            height: 50px;
+            background: yellow;
+            color: black;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 8px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+    </style>
+</head>
+<body>
+    <h1>Monitor 3</h1>
+
+    <div class="score-box" id="totalScore">0</div>
+    <div class="x-container" id="xIndicator"></div>
+
+    <div class="answer-grid" id="answers-container"></div>
+
+    <script>
+        const socket = new WebSocket("ws://localhost:8080");
+        let currentScore = 0;
+        let answerPoints = {};
+
+        socket.onopen = function () {
+            console.log("✅ Connected to WebSocket server as Monitor 3");
+            socket.send(JSON.stringify({ type: "register", clientId: "monitor3" }));
+        };
+
+        socket.onmessage = function (event) {
+            let data = JSON.parse(event.data);
+
+            if (data.type === "strike") {
+                showStrikeIndicator(data.remainingStrikes);
+            }
+
+            if (data.type === "question_selected") {
+                let answersContainer = document.getElementById("answers-container");
+                answersContainer.innerHTML = "";
+                answerPoints = {};
+                currentScore = 0;
+                document.getElementById("totalScore").innerText = "0";
+                document.getElementById("xIndicator").innerHTML = "";
+
+                data.answers.forEach((answer, index) => {
+                    let points = parseInt(data.points[index], 10);
+                    answerPoints[answer] = points;
+
+                    let flipContainer = document.createElement("div");
+                    flipContainer.classList.add("flip-container");
+
+                    let flipCard = document.createElement("div");
+                    flipCard.classList.add("flip-card");
+                    flipCard.id = `answer-${answer.replace(/\s+/g, "-")}`;
+                    flipCard.innerHTML = `<span>${index + 1}</span>`;
+
+                    let pointsContainer = document.createElement("div");
+                    pointsContainer.classList.add("points-container");
+                    pointsContainer.id = `points-${answer.replace(/\s+/g, "-")}`;
+                    pointsContainer.innerText = points;
+
+                    flipContainer.appendChild(flipCard);
+                    flipContainer.appendChild(pointsContainer);
+                    answersContainer.appendChild(flipContainer);
+                });
+            }
+
+            if (data.type === "answer_selected") {
+                console.log(`🎯 Answer Revealed: ${data.answer}`);
+                let flipCard = document.getElementById(`answer-${data.answer.replace(/\s+/g, "-")}`);
+                let pointsContainer = document.getElementById(`points-${data.answer.replace(/\s+/g, "-")}`);
+
+                if (flipCard) {
+                    flipCard.classList.add("flipped");
+                    flipCard.innerHTML = `<span>${data.answer}</span>`;
+                    pointsContainer.style.display = "flex";
+
+                    let points = answerPoints[data.answer] || 0;
+                    animateScoreUpdate(currentScore, currentScore + points);
+                    currentScore += points;
+                }
+            }
+
+            if (data.type === "update_x") {
+                document.getElementById("xIndicator").innerHTML = "❌ ".repeat(data.xCount);
+            }
+            
+        };
+
+        function animateScoreUpdate(start, end) {
+            let duration = 1000;
+            let startTime = null;
+
+            function step(timestamp) {
+                if (!startTime) startTime = timestamp;
+                let progress = (timestamp - startTime) / duration;
+                let animatedValue = Math.floor(start + (end - start) * progress);
+
+                document.getElementById("totalScore").innerText = animatedValue;
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    document.getElementById("totalScore").innerText = end;
+                }
+            }
+
+            requestAnimationFrame(step);
+        }
+    </script>
+</body>
+</html>

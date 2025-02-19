@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Admin Questions</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1E3A5F; color: white; text-align: center; }
+        h1 { color: yellow; }
+        .question-container { 
+            border: 1px solid #ddd; 
+            padding: 15px; 
+            margin: 10px auto; 
+            background-color: #f9f9f9; 
+            cursor: pointer; 
+            border-radius: 10px;
+            max-width: 80%;
+            color: black;
+        }
+        .button-container {
+            margin-top: 20px;
+        }
+        button {
+            background: #FFD700;
+            border: none;
+            padding: 10px 20px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Admin Question Selection</h1>
+    <div id="selectedQuestionContainer">🔄 Loading question...</div>
+    <div class="button-container">
+        <button id="questionButton" onclick="handleQuestionSelection()">Send Question</button>
+    </div>
+
+    <script>
+        const socket = new WebSocket("ws://localhost:8080");
+        let questions = []; // Stores all questions
+        let usedQuestions = new Set(); // Tracks used questions
+        let currentQuestion = null; // Stores the current selected question
+        let questionSent = false; // Tracks if the question has been sent
+
+        socket.onopen = function () {
+            console.log("✅ Connected to WebSocket server");
+            socket.send(JSON.stringify({ type: "register", clientId: "question_sender" }));
+        };
+
+        socket.onclose = function () {
+            console.error("❌ WebSocket closed. Trying to reconnect...");
+            setTimeout(() => { location.reload(); }, 3000);
+        };
+
+        socket.onerror = function (error) {
+            console.error("❌ WebSocket error:", error);
+        };
+
+        async function loadQuestions() {
+            try {
+                let response = await fetch('feud.json');
+                questions = await response.json();
+                console.log("✅ Questions Loaded:", questions);
+                pickRandomQuestion(); // ✅ **Preload a random question**
+            } catch (error) {
+                console.error("❌ Error loading JSON:", error);
+            }
+        }
+
+        function handleQuestionSelection() {
+            if (!questionSent) {
+                // If a question has been picked but not sent yet, send it
+                if (currentQuestion) {
+                    sendQuestionToAdmin(currentQuestion);
+                    document.getElementById("questionButton").innerText = "Next Question";
+                    questionSent = true;
+                } else {
+                    console.error("❌ No question selected.");
+                }
+            } else {
+                // If the question has been sent, pick a new random question
+                pickRandomQuestion();
+                document.getElementById("questionButton").innerText = "Send Question";
+                questionSent = false;
+            }
+        }
+
+        function pickRandomQuestion() {
+            if (questions.length === 0) {
+                console.error("❌ No questions available.");
+                return;
+            }
+
+            // If all questions are used, reset the set
+            if (usedQuestions.size === questions.length) {
+                console.log("🔄 All questions used. Resetting...");
+                usedQuestions.clear();
+            }
+
+            let availableQuestions = questions.filter((_, index) => !usedQuestions.has(index));
+            if (availableQuestions.length === 0) return;
+
+            let randomIndex = Math.floor(Math.random() * availableQuestions.length);
+            currentQuestion = availableQuestions[randomIndex];
+
+            // Mark question as used
+            let originalIndex = questions.indexOf(currentQuestion);
+            usedQuestions.add(originalIndex);
+
+            // Display question
+            document.getElementById("selectedQuestionContainer").innerHTML = `
+                <div class="question-container">
+                    <h3>${currentQuestion.question}</h3>
+                </div>
+            `;
+
+            console.log(`🎯 Preloaded Question: ${currentQuestion.question}`);
+        }
+
+        function sendQuestionToAdmin(questionData) {
+            console.log(`📤 Sending Question: ${questionData.question}`);
+
+            let message = {
+                type: "question_selected",
+                question: questionData.question,
+                answers: questionData.answers,
+                points: questionData.points
+            };
+
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(message));
+            } else {
+                console.error("❌ WebSocket not open. Retrying...");
+                setTimeout(() => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify(message));
+                        console.log("✅ Retried and sent question.");
+                    } else {
+                        console.error("❌ Still cannot send. WebSocket might be closed.");
+                    }
+                }, 2000);
+            }
+        }
+
+        // ✅ **Preload a question on page load**
+        window.onload = loadQuestions;
+    </script>
+</body>
+</html>

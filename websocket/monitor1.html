@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Monitor</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif;
+            text-align: center;
+            height: auto;
+            width: 100%;
+            background: #a7cfdf;
+            background: -moz-linear-gradient(top, #a7cfdf 0%, #23538a 100%);
+            background: -webkit-linear-gradient(bottom, #a7cfdf 0%, #23538a 100%);
+        }
+        h1 { 
+    font-size: 120px; 
+    text-shadow: -2px -2px 5px black, 2px -2px 5px black, -2px 2px 5px black, 5px 5px 5px black;
+    /* font-size: 800%; */
+    font-weight: 900;
+    font-family: fangsong;
+    color: #FFD700;
+    text-shadow: 3px 3px 10px rgba(161, 9, 9, 0.5);
+    display: inline-block;
+    animation: beat 1s infinite; /* Updated animation with 1 second duration */
+    transform-origin: center;
+}
+
+@keyframes beat {
+    0% {
+        transform: scale(1);
+        text-shadow: -2px -2px 5px black, 2px -2px 5px black, -2px 2px 5px black, 5px 5px 5px black;
+    }
+    25% {
+        transform: scale(1.2); /* Slightly bigger for the beat effect */
+        text-shadow: 0 0 20px rgba(255, 0, 0, 0.6), 0 0 20px rgba(255, 0, 0, 0.6);
+    }
+    50% {
+        transform: scale(1);
+        text-shadow: -2px -2px 5px black, 2px -2px 5px black, -2px 2px 5px black, 5px 5px 5px black;
+    }
+    75% {
+        transform: scale(1.2);
+        text-shadow: 0 0 20px rgba(255, 0, 0, 0.6), 0 0 20px rgba(255, 0, 0, 0.6);
+    }
+    100% {
+        transform: scale(1);
+        text-shadow: -2px -2px 5px black, 2px -2px 5px black, -2px 2px 5px black, 5px 5px 5px black;
+    }
+}
+
+                        .score-box {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin: 15px auto;
+            font-size: 187px;
+            font-weight: bold;
+            background-color: #f9f9f9;
+            /* display: inline-block; */
+            height: auto;
+            min-width: 100px;
+            width: 100%;
+                }
+    </style>
+</head>
+<body>
+    <h1>TEAM 1</h1>
+    <div class="score-box" id="scoreDisplay">0</div>
+
+    <script>
+        const socket = new WebSocket("ws://localhost:8080");
+        let currentScore = 0; // Store the current score
+
+        socket.onopen = function () {
+            console.log("✅ Connected to WebSocket server as Monitor 1 (Team 1)");
+            socket.send(JSON.stringify({ type: "register", clientId: "monitor1" }));
+        };
+
+        socket.onmessage = function (event) {
+            let data = JSON.parse(event.data);
+            if (data.type === "score_update" && data.team === "team1") {
+                document.getElementById("team1-score").innerText = data.score;
+                console.log(`📢 Team 1 Score Updated: ${data.score}`);
+            }
+        };
+    </script>
+</body>
+</html>
