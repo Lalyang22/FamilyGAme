@@ -212,54 +212,52 @@ function handleAnswerClick(answer, points = 0, element) {
     }
 
     if (clickedAnswers.has(answer)) return; // Prevent duplicate clicks
-    if (scoreAwarded) {
-        console.log(`⚠️ Answer Clicked: ${answer} (No points added - score already awarded)`);
+    clickedAnswers.add(answer);
+    element.classList.add("active");
+
+    console.log(`🎯 Answer Clicked: ${answer}`);
+
+    // ✅ Always send flip signal even if the game is over
+    socket.send(JSON.stringify({ type: "answer_selected", answer, pointsToAdd: 0 }));
+
+    if (scoreAwarded) { // ✅ Game over, just allow flipping
+        console.log(`⚠️ Answer "${answer}" clicked, but no points added - score already awarded.`);
         return;
     }
 
-    clickedAnswers.add(answer);
-    element.classList.add("active");
-    current_answer_count++; // Increment the count of clicked answers
+    current_answer_count++; 
+    let pointsToAdd = points * multiplier; 
+    stored_points += pointsToAdd; 
 
-    let pointsToAdd = points * multiplier; // Calculate points for this answer
-    stored_points += pointsToAdd; // Accumulate points
     console.log(`📊 Points for "${answer}" after multiplying by round multiplier (x${multiplier}): ${pointsToAdd}`);
 
     let winner = null;
 
-    // ✅ Send answer selection event first
-    socket.send(JSON.stringify({ type: "answer_selected", answer, pointsToAdd }));
+    if (prewin_life > 0 && current_answer_count === total_answer_count) {
+        let prewinScore = getScore(prewin);
+        let newScore = prewinScore + stored_points;
+        console.log(`🏆 Awarding Points to ${prewin}: ${stored_points} (New Score: ${newScore})`);
+        
+        stored_points = 0;
+        scoreAwarded = true;
+        winner = prewin;
+        setScore(prewin, newScore, prewin);
+    } else if (prewin_life === 0 && prelose_life === 1) {
+        let preloseScore = getScore(prelose);
+        let newScore = preloseScore + stored_points;
+        console.log(`🏆 Awarding Points to ${prelose}: ${stored_points} (New Score: ${newScore})`);
 
-    setTimeout(() => {
-        // Check if all answers have been clicked
-        if (prewin_life > 0 && current_answer_count === total_answer_count) {
-            let prewinScore = getScore(prewin);
-            let newScore = prewinScore + stored_points; // Calculate new score
-            console.log(`🏆 Awarding Points to ${prewin}: ${stored_points} (New Score: ${newScore})`);
+        markWinner(prelose);
+        stored_points = 0;
+        scoreAwarded = true;
+        winner = prelose;
+        setScore(prelose, newScore, prelose);
+    }
 
-            stored_points = 0; // Reset stored points
-            scoreAwarded = true; // Mark that points have been awarded
-            winner = prewin;
-            setScore(prewin, newScore, prewin); // Update the score display
-
-        } else if (prewin_life === 0 && prelose_life === 1) {
-            let preloseScore = getScore(prelose);
-            let newScore = preloseScore + stored_points;
-            console.log(`🏆 Awarding Points to ${prelose}: ${stored_points} (New Score: ${newScore})`);
-
-            markWinner(prelose);
-            stored_points = 0; // Reset stored points
-            scoreAwarded = true; // Mark that points have been awarded
-            winner = prelose;
-            setScore(prelose, newScore, prelose);
-        }
-
-        // ✅ Send "game_status" **AFTER** the last answer is revealed
-        if (scoreAwarded && winner) {
-            socket.send(JSON.stringify({ type: "game_status", status: "done", winner: winner }));
-            console.log(`📤 Notifying Monitor 3: Game finished. Winner: ${winner}`);
-        }
-    }, 500); // Small delay to ensure answer is processed first
+    if (scoreAwarded && winner) {
+        socket.send(JSON.stringify({ type: "game_status", status: "done", winner: winner }));
+        console.log(`📤 Notifying Monitor 3: Game finished. Winner: ${winner}`);
+    }
 }
 
 function minusLife() {

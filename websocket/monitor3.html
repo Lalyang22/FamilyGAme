@@ -201,21 +201,23 @@ socket.onmessage = function (event) {
         let pointsContainer = document.getElementById(`points-${data.answer.replace(/\s+/g, "-")}`);
 
         if (flipCard) {
-            flipCard.classList.add("flipped");
+            flipCard.classList.add("flipped"); // ✅ Always flip the answer
             flipCard.innerHTML = `<span>${data.answer}</span>`;
             pointsContainer.style.display = "flex";
 
-            if (!scoreLocked) { // ✅ Prevent score updates after winner is declared
+            if (!scoreLocked) { // ✅ Add points only if game is not over
                 let basePoints = answerPoints[data.answer] || 0;
                 let finalPoints = basePoints * roundCount;
 
                 animateScoreUpdate(currentScore, currentScore + finalPoints);
                 currentScore += finalPoints;
             } else {
-                console.log(`⚠️ Answer "${data.answer}" flipped, but score is locked!`);
+                console.log(`⚠️ Answer "${data.answer}" flipped, but no points added due to game over.`);
             }
         }
     }
+
+
 };
 
 function animateScoreUpdate(start, end) {
