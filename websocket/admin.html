@@ -204,12 +204,8 @@ function startNewRound() {
     round++; // Move to the next round
 }
 
-
-
-
 // Function: Handle Answer Click
-// Function: Handle Answer Click
-function handleAnswerClick(answer, points = 0, element) {
+function handleAnswerClick(answer, points = 0, element) { 
     if (!element) {
         console.error(`❌ Error: Element is undefined for answer "${answer}"`);
         return;
@@ -229,47 +225,43 @@ function handleAnswerClick(answer, points = 0, element) {
     stored_points += pointsToAdd; // Accumulate points
     console.log(`📊 Points for "${answer}" after multiplying by round multiplier (x${multiplier}): ${pointsToAdd}`);
 
-    // Check if all answers have been clicked
-    if (prewin_life > 0 && current_answer_count === total_answer_count) {
-        let prewinScore = getScore(prewin);
-        let newScore = prewinScore + stored_points; // Calculate new score
-        console.log(`🏆 Awarding Points to ${prewin}: ${stored_points} (New Score: ${newScore})`);
-        
-        setScore(prewin, newScore); // Update the score display
-        stored_points = 0; // Reset stored points
-        scoreAwarded = true; // Mark that points have been awarded
-    } else if (prewin_life === 0 && prelose_life === 1) {
-        let preloseScore = getScore(prelose);
-        let newScore = preloseScore + stored_points;
-        console.log(`🏆 Awarding Points to ${prelose}: ${stored_points} (New Score: ${newScore})`);
-        setScore(prelose, newScore);
+    let winner = null;
 
-        markWinner(prelose);
-        stored_points = 0; // Reset stored points
-        scoreAwarded = true; // Mark that points have been awarded
-    }
-
-    // Send answer selection event via WebSocket
+    // ✅ Send answer selection event first
     socket.send(JSON.stringify({ type: "answer_selected", answer, pointsToAdd }));
+
+    setTimeout(() => {
+        // Check if all answers have been clicked
+        if (prewin_life > 0 && current_answer_count === total_answer_count) {
+            let prewinScore = getScore(prewin);
+            let newScore = prewinScore + stored_points; // Calculate new score
+            console.log(`🏆 Awarding Points to ${prewin}: ${stored_points} (New Score: ${newScore})`);
+
+            stored_points = 0; // Reset stored points
+            scoreAwarded = true; // Mark that points have been awarded
+            winner = prewin;
+            setScore(prewin, newScore, prewin); // Update the score display
+
+        } else if (prewin_life === 0 && prelose_life === 1) {
+            let preloseScore = getScore(prelose);
+            let newScore = preloseScore + stored_points;
+            console.log(`🏆 Awarding Points to ${prelose}: ${stored_points} (New Score: ${newScore})`);
+
+            markWinner(prelose);
+            stored_points = 0; // Reset stored points
+            scoreAwarded = true; // Mark that points have been awarded
+            winner = prelose;
+            setScore(prelose, newScore, prelose);
+        }
+
+        // ✅ Send "game_status" **AFTER** the last answer is revealed
+        if (scoreAwarded && winner) {
+            socket.send(JSON.stringify({ type: "game_status", status: "done", winner: winner }));
+            console.log(`📤 Notifying Monitor 3: Game finished. Winner: ${winner}`);
+        }
+    }, 500); // Small delay to ensure answer is processed first
 }
 
-// Function to get the score of a team
-function getScore(team) {
-    let element = document.getElementById(`${team}-score`);
-    return element ? parseInt(element.innerText) || 0 : 0; // Default to 0 if NaN
-}
-
-// Function to set the score of a team
-function setScore(team, score) {
-    let element = document.getElementById(`${team}-score`);
-    if (element) {
-        console.log(`🔹 Setting Score for ${team}: ${score}`);
-        element.innerText = score; // Update score display
-    } else {
-        console.error(`⚠️ ERROR: Could not find element for ${team}-score.`);
-    }
-}
-// Function: Minus Life
 function minusLife() {
     if (prewin_life > 0) {
         prewin_life--;
@@ -292,17 +284,82 @@ function minusLife() {
             prewinScoreElement.innerText = currentScore + finalPoints;
             console.log(`✅ ${prewin} Score Updated: ${currentScore + finalPoints}`);
 
-            // Mark prewin as the winner
             markWinner(prelose);
         } else {
             console.error(`⚠️ ERROR: Could not find element for ${prewin}-score.`);
         }
 
         stored_points = 0;
+
+        // ✅ Send "game_status" to Monitor 3
+        socket.send(JSON.stringify({ type: "game_status", status: "done", winner: prewin }));
+        console.log(`📤 Notifying Monitor 3: Game finished. Winner: ${prewin}`);
     }
 
     updateXIndicator();
 }
+
+
+// Function to get the score of a team
+function getScore(team) {
+    let element = document.getElementById(`${team}-score`);
+    return element ? parseInt(element.innerText) || 0 : 0; // Default to 0 if NaN
+}
+
+// Function to set the score of a team
+function setScore(team, score, winner) {  // Pass winner as parameter
+    let element = document.getElementById(`${team}-score`);
+    if (element) {
+        console.log(`🔹 Setting Score for ${team}: ${score}`);
+        
+        // ✅ Ensure 'winner' is not undefined before sending
+        if (winner) {
+            socket.send(JSON.stringify({ type: "game_status", status: "done", winner: winner }));
+            console.log(`📤 Notifying Monitor 3: Game finished. Winner: ${winner}`);
+        } else {
+            console.warn("⚠️ Warning: No winner provided, game_status not sent.");
+        }
+
+        element.innerText = score; // Update score display
+    } else {
+        console.error(`⚠️ ERROR: Could not find element for ${team}-score.`);
+    }
+}
+
+// Function: Minus Life
+// function minusLife() {
+//     if (prewin_life > 0) {
+//         prewin_life--;
+//         console.log(`⚠️ ${prewin} loses 1 life. Remaining: ${prewin_life}`);
+
+//         if (prewin_life === 0) {
+//             prelose_life = 1;
+//             console.log(`❌ ${prelose} gains 1 life (fixed at 1).`);
+//         }
+//     } 
+//     else if (prewin_life === 0 && prelose_life === 1) {
+//         prelose_life = 0;
+
+//         let finalPoints = stored_points;
+//         console.log(`🎉 ${prewin} gains ${finalPoints} points!`);
+
+//         let prewinScoreElement = document.getElementById(`${prewin}-score`);
+//         if (prewinScoreElement) {
+//             let currentScore = parseInt(prewinScoreElement.innerText) || 0;
+//             prewinScoreElement.innerText = currentScore + finalPoints;
+//             console.log(`✅ ${prewin} Score Updated: ${currentScore + finalPoints}`);
+
+//             // Mark prewin as the winner
+//             markWinner(prelose);
+//         } else {
+//             console.error(`⚠️ ERROR: Could not find element for ${prewin}-score.`);
+//         }
+
+//         stored_points = 0;
+//     }
+
+//     updateXIndicator();
+// }
 
 // Function: Mark Winner
 function markWinner(team) {
@@ -353,7 +410,7 @@ function updateXIndicator() {
     // If the game is won by either team, replace Xs with "Winner"
     if (prelose_life === 0 && prewin_life === 0) {
         prewinX.innerText = "🏆 Winner";
-        preloseX.innerText = "";
+        preloseX.innerText = "❌";
     }
 }
 
@@ -385,6 +442,9 @@ function resetTimer() {
 
 // Display the question and answers
 function getRandomQuestionAndSend() {
+    // ✅ Reset X Indicators Before Starting a New Round
+    document.getElementById("team1-x").innerHTML = "";
+    document.getElementById("team2-x").innerHTML = "";
     if (questionsData.length === 0) {
         console.error("❌ No questions available.");
         return;
@@ -438,6 +498,24 @@ function getRandomQuestionAndSend() {
 }
 
 
+
+
+function startNewRound() {
+    if (round > maxRounds) return; // Prevent extra rounds
+
+    multiplier = round; // Set multiplier based on the round
+    console.log(`🔄 Starting Round ${round} (Multiplier: x${multiplier})`);
+
+    prewin_life = 3;
+    prelose_life = 0;
+    stored_points = 0;
+    current_answer_count = 0;
+    scoreAwarded = false;
+
+    round++; // Move to the next round
+}
+
+
 // Function: Send Question to Both Admin & Monitor 3
 // Function: Send Question to Admin and Monitor
 // Function: Send Question to Admin and Monitor
@@ -466,20 +544,6 @@ function sendQuestion() {
     socket.send(JSON.stringify(payload));
 }
 
-function startNewRound() {
-    if (round > maxRounds) return; // Prevent extra rounds
-
-    multiplier = round; // Set multiplier based on the round
-    console.log(`🔄 Starting Round ${round} (Multiplier: x${multiplier})`);
-
-    prewin_life = 3;
-    prelose_life = 0;
-    stored_points = 0;
-    current_answer_count = 0;
-    scoreAwarded = false;
-
-    round++; // Move to the next round
-}
 
 // Function: Reconnect WebSocket if it's closed
 function reconnectWebSocket() {

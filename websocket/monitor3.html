@@ -94,21 +94,37 @@
             top: 50%;
             transform: translateY(-50%);
         }
+        .round-box {
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            background: #004085;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
     </style>
 </head>
 <body>
-    <h1>Monitor 3</h1>
+
+    <div class="round-box">Round <span id="roundNumber">1</span></div>
+    <div>
+        <span id="winnerDisplay"></span>
+    </div>
 
     <div class="score-box" id="totalScore">0</div>
     <div class="x-container" id="xIndicator"></div>
 
     <div class="answer-grid" id="answers-container"></div>
 
-    <script>
-const socket = new WebSocket("ws://localhost:8080");
+<script>
+    const socket = new WebSocket("ws://localhost:8080");
 let currentScore = 0;
 let answerPoints = {};
-let multiplier = 1; // Default to 1x multiplier
+let roundCount = 0;
+let scoreLocked = false; // ✅ Prevents further score updates when game is finished
+let gameFinished = false; // ✅ Track if game is over
 
 socket.onopen = function () {
     console.log("✅ Connected to WebSocket server as Monitor 3");
@@ -117,9 +133,21 @@ socket.onopen = function () {
 
 socket.onmessage = function (event) {
     let data = JSON.parse(event.data);
+    console.log(`📥 [Monitor 3] Received: ${JSON.stringify(data)}`);
 
-    if (data.type === "strike") {
-        showStrikeIndicator(data.remainingStrikes);
+    if (data.type === "game_status") {
+        console.log(`🚨 [Monitor 3] Game Over! Winner: ${data.winner}`);
+        gameFinished = true; // ✅ Stop score updates
+        scoreLocked = true;  // ✅ Prevent further points from adding
+
+        let winnerDisplay = document.getElementById("winnerDisplay");
+        if (winnerDisplay) {
+            winnerDisplay.innerText = `🏆 Winner: ${data.winner}`;
+        } else {
+            console.warn("⚠️ Warning: winnerDisplay element not found.");
+        }
+
+        return;
     }
 
     if (data.type === "question_selected") {
@@ -127,11 +155,21 @@ socket.onmessage = function (event) {
         answersContainer.innerHTML = "";
         answerPoints = {};
         currentScore = 0;
+        scoreLocked = false;
+        gameFinished = false; // ✅ Allow scoring again for the new question
         document.getElementById("totalScore").innerText = "0";
         document.getElementById("xIndicator").innerHTML = "";
 
-        // ✅ Capture the multiplier from the server
-        multiplier = data.multiplier || 1;
+        roundCount++;
+        let multiplier = Math.min(roundCount, 3);
+        let roundDisplay = document.getElementById("roundNumber");
+
+        if (roundDisplay) {
+            roundDisplay.innerText = `Round ${roundCount}`;
+        } else {
+            console.warn("⚠️ Warning: roundNumber element not found.");
+        }
+
         console.log(`🆕 Round Multiplier Updated: x${multiplier}`);
 
         data.answers.forEach((answer, index) => {
@@ -149,7 +187,7 @@ socket.onmessage = function (event) {
             let pointsContainer = document.createElement("div");
             pointsContainer.classList.add("points-container");
             pointsContainer.id = `points-${answer.replace(/\s+/g, "-")}`;
-            pointsContainer.innerText = points * multiplier; // ✅ Apply multiplier to displayed points
+            pointsContainer.innerText = points * multiplier;
 
             flipContainer.appendChild(flipCard);
             flipContainer.appendChild(pointsContainer);
@@ -167,16 +205,16 @@ socket.onmessage = function (event) {
             flipCard.innerHTML = `<span>${data.answer}</span>`;
             pointsContainer.style.display = "flex";
 
-            let basePoints = answerPoints[data.answer] || 0;
-            let finalPoints = basePoints * multiplier; // ✅ Apply multiplier to final score calculation
+            if (!scoreLocked) { // ✅ Prevent score updates after winner is declared
+                let basePoints = answerPoints[data.answer] || 0;
+                let finalPoints = basePoints * roundCount;
 
-            animateScoreUpdate(currentScore, currentScore + finalPoints);
-            currentScore += finalPoints;
+                animateScoreUpdate(currentScore, currentScore + finalPoints);
+                currentScore += finalPoints;
+            } else {
+                console.log(`⚠️ Answer "${data.answer}" flipped, but score is locked!`);
+            }
         }
-    }
-
-    if (data.type === "update_x") {
-        document.getElementById("xIndicator").innerHTML = "❌ ".repeat(data.xCount);
     }
 };
 
@@ -200,6 +238,7 @@ function animateScoreUpdate(start, end) {
 
     requestAnimationFrame(step);
 }
+
 </script>
     
 </body>
