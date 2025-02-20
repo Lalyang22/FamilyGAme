@@ -4,7 +4,7 @@ import json
 
 clients = {}
 
-async def handle_client(websocket, path=None):  # ✅ FIX: Added default value for path
+async def handle_client(websocket, path=None):
     """Handles WebSocket connections"""
     try:
         async for message in websocket:
@@ -15,28 +15,27 @@ async def handle_client(websocket, path=None):  # ✅ FIX: Added default value f
                 clients[client_id] = websocket
                 print(f"✅ {client_id} registered successfully.")
 
-            elif data["type"] == "send_message":
-                monitor_id = data["monitorId"]
-                if monitor_id in clients:
-                    await clients[monitor_id].send(json.dumps({
-                        "type": "chat_message",
-                        "text": data["text"]
-                    }))
-                    print(f"📤 Sending message to {monitor_id}: {data['text']}")
-                else:
-                    print(f"⚠️ Monitor {monitor_id} not found.")
-
             elif data["type"] == "question_selected":
+                # Extract only text and points separately
                 question_payload = {
                     "type": "question_selected",
                     "question": data["question"],
-                    "answers": data["answers"],
-                    "points": data["points"]
+                    "answers": [answer["text"] for answer in data["answers"]],  # Extract text
+                    "points": [answer["points"] for answer in data["answers"]]  # Extract points
                 }
-                for target in ["admin", "monitor3"]:
-                    if target in clients:
-                        await clients[target].send(json.dumps(question_payload))
-                        print(f"📤 Sending question to {target}: {data['question']}")
+
+                # Send to Admin Question Viewer
+                if "admin_question" in clients:
+                    await clients["admin_question"].send(json.dumps({
+                        "type": "question_selected",
+                        "question": data["question"]
+                    }))
+                    print(f"📤 Sent question to admin_question: {data['question']}")
+
+                # Send to Monitor 3
+                if "monitor3" in clients:
+                    await clients["monitor3"].send(json.dumps(question_payload))
+                    print(f"📤 Sent question to monitor3: {data['question']}")
 
             elif data["type"] == "answer_selected":
                 answer_text = data["answer"]
@@ -59,12 +58,9 @@ async def handle_client(websocket, path=None):  # ✅ FIX: Added default value f
 async def main():
     """Start the WebSocket server"""
     print("🚀 WebSocket Server Started on ws://localhost:8080")
-
-    # ✅ FIX: `path` is no longer required in websockets 11+
     async with websockets.serve(handle_client, "localhost", 8080):
         await asyncio.Future()  # Keeps the server running
 
-# ✅ FIX: Ensure asyncio runs properly
 try:
     asyncio.run(main())
 except RuntimeError:

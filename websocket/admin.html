@@ -92,6 +92,7 @@
             border-radius: 10px;
             cursor: pointer;
             margin: 5px;
+            tabindex: 0; /* Make buttons focusable */
         }
     </style>
 </head>
@@ -108,18 +109,19 @@
     <button onclick="resetTimer()">Restart Timer</button>
 
     <div class="x-container" id="xIndicator"></div>
-        <div><span id="prewin-label"></span> <span id="team1-x"></span></div>
-        <div><span id="prelose-label"></span> <span id="team2-x"></span></div>
-        <button onclick="minusLife()">Minus 1 Life</button>
+    <div><span id="prewin-label"></span> <span id="team1-x"></span></div>
+    <div><span id="prelose-label"></span> <span id="team2-x"></span></div>
+    <button onclick="minusLife()">Minus 1 Life</button>
 
-    
+    <button id="randomQuestionButton" onclick="getRandomQuestionAndSend()">Start Round 1</button>
+
+
     <div class="question-box" id="questionText">Waiting for question...</div>
     <div class="answer-container" id="answers"></div>
 
     <div class="score-display">TEAM 1 Score: <span id="team1-score">0</span></div>
     <div class="score-display">TEAM 2 Score: <span id="team2-score">0</span></div>
-
-
+    
     
 <script>
 const socket = new WebSocket("ws://localhost:8080");
@@ -139,6 +141,9 @@ let round = 1; // Starts at Round 1
 const maxRounds = 3; // Max 3 rounds
 let multiplier = 1; // Multiplier (starts at 1 for Round 1)
 let scoreAwarded = false;
+let questionsData = [];
+let currentQuestion = null;
+const usedQuestions = new Set();
 
 // WebSocket Connection
 socket.onopen = function () {
@@ -146,13 +151,34 @@ socket.onopen = function () {
     socket.send(JSON.stringify({ type: "register", clientId: "admin" }));
 };
 
+// WebSocket Error Handling
+socket.onerror = function (error) {
+    console.error("WebSocket Error:", error);
+};
+
+// Load questions from JSON
+function loadQuestions() {
+    fetch("feud.json")
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("Network response was not ok " + response.statusText);
+            }
+            return response.json();
+        })
+        .then(data => {
+            questionsData = data;
+            console.log("Questions loaded:", questionsData); // Debugging line
+        })
+        .catch(error => console.error("Error loading questions:", error));
+}
+
 // Set the pre-match winner
 function setPreMatchWinner(team) {
     prewin = team;
-    prelose = team === "team1" ? "team2" : "team1";
-    console.log(`🏆 Prematch Winner: ${prewin} | ❌ Loser: ${prelose}`);
+    prelose = team === "team1" ? "team2" : "team1"; // Ensure opposite assignment
 
-    // Ensure the elements exist before setting innerText
+    console.log(`🏆 Prematch Winner SET: ${prewin}, Prelose: ${prelose}`);
+
     let prewinLabel = document.getElementById("prewin-label");
     let preloseLabel = document.getElementById("prelose-label");
 
@@ -161,33 +187,6 @@ function setPreMatchWinner(team) {
 
     resetXIndicators();
 }
-
-// Receive data from WebSocket
-socket.onmessage = function (event) {
-    let data = JSON.parse(event.data);
-    if (data.type === "question_selected") {
-        document.getElementById("questionText").innerText = data.question;
-        let answerContainer = document.getElementById("answers");
-        answerContainer.innerHTML = "";
-        clickedAnswers.clear();
-
-        stored_points = 0;
-        total_answer_count = data.answers.length;
-        current_answer_count = 0;
-        scoreAwarded = false;
-
-        data.answers.forEach((answer, index) => {
-            let answerDiv = document.createElement("div");
-            answerDiv.classList.add("answer-box");
-            answerDiv.innerText = `${answer}`;
-            answerDiv.onclick = () => handleAnswerClick(answer, data.points[index], answerDiv);
-            answerContainer.appendChild(answerDiv);
-        });
-
-        // Start a new round
-        startNewRound();
-    }
-};
 
 // Start a new round
 function startNewRound() {
@@ -206,8 +205,16 @@ function startNewRound() {
 }
 
 
+
+
 // Function: Handle Answer Click
-function handleAnswerClick(answer, points, element) {
+// Function: Handle Answer Click
+function handleAnswerClick(answer, points = 0, element) {
+    if (!element) {
+        console.error(`❌ Error: Element is undefined for answer "${answer}"`);
+        return;
+    }
+
     if (clickedAnswers.has(answer)) return; // Prevent duplicate clicks
     if (scoreAwarded) {
         console.log(`⚠️ Answer Clicked: ${answer} (No points added - score already awarded)`);
@@ -216,50 +223,52 @@ function handleAnswerClick(answer, points, element) {
 
     clickedAnswers.add(answer);
     element.classList.add("active");
-    current_answer_count++;
+    current_answer_count++; // Increment the count of clicked answers
 
-    let pointsToAdd = points * multiplier; // Multiply points by round multiplier
-    stored_points += pointsToAdd;
+    let pointsToAdd = points * multiplier; // Calculate points for this answer
+    stored_points += pointsToAdd; // Accumulate points
     console.log(`📊 Points for "${answer}" after multiplying by round multiplier (x${multiplier}): ${pointsToAdd}`);
 
-    // Ensure the scores are always numbers
-    function getScore(team) {
-        let element = document.getElementById(`${team}-score`);
-        return element ? parseInt(element.innerText) || 0 : 0; // Default to 0 if NaN
-    }
-
-    function setScore(team, score) {
-        let element = document.getElementById(`${team}-score`);
-        if (element) element.innerText = score; // Update score display
-    }
-
-    if (prewin_life === 0 && prelose_life === 1) {
-        // If prewin lost all lives and prelose has 1 life, award points to prelose
+    // Check if all answers have been clicked
+    if (prewin_life > 0 && current_answer_count === total_answer_count) {
+        let prewinScore = getScore(prewin);
+        let newScore = prewinScore + stored_points; // Calculate new score
+        console.log(`🏆 Awarding Points to ${prewin}: ${stored_points} (New Score: ${newScore})`);
+        
+        setScore(prewin, newScore); // Update the score display
+        stored_points = 0; // Reset stored points
+        scoreAwarded = true; // Mark that points have been awarded
+    } else if (prewin_life === 0 && prelose_life === 1) {
         let preloseScore = getScore(prelose);
         let newScore = preloseScore + stored_points;
+        console.log(`🏆 Awarding Points to ${prelose}: ${stored_points} (New Score: ${newScore})`);
         setScore(prelose, newScore);
-        console.log(`✅ Total Score Added to ${prelose}: ${stored_points} (New Total: ${newScore})`);
 
-        // Mark prelose as the winner
         markWinner(prelose);
-        stored_points = 0;
-        scoreAwarded = true;
-    } 
-    else if (prewin_life > 0 && current_answer_count === total_answer_count) {
-        // If prewin still has lives and all answers are clicked, award points to prewin
-        let prewinScore = getScore(prewin);
-        let newScore = prewinScore + stored_points;
-        setScore(prewin, newScore);
-        console.log(`✅ Total Score Added to ${prewin}: ${stored_points} (New Total: ${newScore})`);
-
-        stored_points = 0;
-        scoreAwarded = true;
+        stored_points = 0; // Reset stored points
+        scoreAwarded = true; // Mark that points have been awarded
     }
 
     // Send answer selection event via WebSocket
     socket.send(JSON.stringify({ type: "answer_selected", answer, pointsToAdd }));
 }
 
+// Function to get the score of a team
+function getScore(team) {
+    let element = document.getElementById(`${team}-score`);
+    return element ? parseInt(element.innerText) || 0 : 0; // Default to 0 if NaN
+}
+
+// Function to set the score of a team
+function setScore(team, score) {
+    let element = document.getElementById(`${team}-score`);
+    if (element) {
+        console.log(`🔹 Setting Score for ${team}: ${score}`);
+        element.innerText = score; // Update score display
+    } else {
+        console.error(`⚠️ ERROR: Could not find element for ${team}-score.`);
+    }
+}
 // Function: Minus Life
 function minusLife() {
     if (prewin_life > 0) {
@@ -347,38 +356,161 @@ function updateXIndicator() {
         preloseX.innerText = "";
     }
 }
+
+// Start Timer
+function startTimer() {
+    clearInterval(timerInterval);
+    timerValue = 3;
+    document.getElementById("timer").innerText = timerValue;
+
+    timerInterval = setInterval(() => {
+        timerValue--;
+        document.getElementById("timer").innerText = timerValue;
+        socket.send(JSON.stringify({ type: "update_timer", timer: timerValue }));
+
+        if (timerValue <= 0) {
+            clearInterval(timerInterval);
+            minusLife();
+        }
+    }, 1000);
+}
+
+// Reset Timer
+function resetTimer() {
+    clearInterval(timerInterval);
+    timerValue = 3;
+    document.getElementById("timer").innerText = timerValue;
+    socket.send(JSON.stringify({ type: "update_timer", timer: timerValue }));
+}
+
+// Display the question and answers
+function getRandomQuestionAndSend() {
+    if (questionsData.length === 0) {
+        console.error("❌ No questions available.");
+        return;
+    }
+
+    // Reset used questions when all are used
+    if (usedQuestions.size === questionsData.length) {
+        console.log("🔄 All questions used. Resetting...");
+        usedQuestions.clear();
+    }
+
+    let availableQuestions = questionsData.filter((_, index) => !usedQuestions.has(index));
+    if (availableQuestions.length === 0) return;
+
+    let randomIndex = Math.floor(Math.random() * availableQuestions.length);
+    currentQuestion = availableQuestions[randomIndex];
+
+    // Mark as used
+    let originalIndex = questionsData.indexOf(currentQuestion);
+    usedQuestions.add(originalIndex);
+
+    // ✅ Start a new round (Resets round-related variables)
+    startNewRound();
+
+    // ✅ Update answer count for the new question
+    total_answer_count = currentQuestion.answers.length;
+    current_answer_count = 0;
+    console.log(`🔄 New Round Started: total_answer_count = ${total_answer_count}`);
+
+    // Display the selected question
+    document.getElementById("questionText").innerText = currentQuestion.question;
+
+    let answerContainer = document.getElementById("answers");
+    answerContainer.innerHTML = "";
+    currentQuestion.answers.forEach((answer) => {
+        let button = document.createElement("button");
+        button.innerText = answer.text;
+        button.classList.add("answer-box");
+        button.onclick = () => handleAnswerClick(answer.text, answer.points, button);
+        answerContainer.appendChild(button);
+    });
+
+    // ✅ Send the question immediately after selecting
+    sendQuestion(currentQuestion);
+
+    // ✅ Update the button text for the next round
+    let button = document.getElementById("randomQuestionButton");
+    if (button) {
+        button.innerText = `Start Round ${round}`; // Updates text to the next round
+    }
+}
+
+
+// Function: Send Question to Both Admin & Monitor 3
+// Function: Send Question to Admin and Monitor
+// Function: Send Question to Admin and Monitor
+function sendQuestion() {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        console.error("❌ WebSocket not open. Trying to reconnect...");
+        reconnectWebSocket();
+        return;
+    }
+
+    if (!currentQuestion) {
+        console.error("❌ No question selected.");
+        return;
+    }
+
+    let payload = {
+        type: "question_selected",
+        question: currentQuestion.question,
+        answers: currentQuestion.answers,
+        points: currentQuestion.points,
+        multiplier: multiplier // ✅ Include the current round's multiplier
+    };
+
+    console.log(`📤 Sending Question: ${currentQuestion.question} (Multiplier: x${multiplier})`);
+
+    socket.send(JSON.stringify(payload));
+}
+
+function startNewRound() {
+    if (round > maxRounds) return; // Prevent extra rounds
+
+    multiplier = round; // Set multiplier based on the round
+    console.log(`🔄 Starting Round ${round} (Multiplier: x${multiplier})`);
+
+    prewin_life = 3;
+    prelose_life = 0;
+    stored_points = 0;
+    current_answer_count = 0;
+    scoreAwarded = false;
+
+    round++; // Move to the next round
+}
+
+// Function: Reconnect WebSocket if it's closed
+function reconnectWebSocket() {
+    console.warn("⚠️ Reconnecting WebSocket...");
+    
+    socket = new WebSocket("ws://localhost:8080");  // ✅ Reassign WebSocket (remove 'const')
+
+    socket.onopen = function () {
+        console.log("✅ WebSocket Reconnected!");
+        socket.send(JSON.stringify({ type: "register", clientId: "admin" }));
+    };
+
+    socket.onmessage = function (event) {
+        let data = JSON.parse(event.data);
+        console.log(`📥 Received: ${JSON.stringify(data)}`);
+    };
+
+    socket.onerror = function (error) {
+        console.error("❌ WebSocket Error:", error);
+    };
+
+    socket.onclose = function () {
+        console.warn("⚠️ WebSocket Closed. Retrying in 3 seconds...");
+        setTimeout(reconnectWebSocket, 3000);
+    };
+}
+
+
+// Load questions on page load
+document.addEventListener("DOMContentLoaded", loadQuestions);
 </script>
 
-
-    <script>
-    
-        // Start Timer
-        function startTimer() {
-            clearInterval(timerInterval);
-            timerValue = 3;
-            document.getElementById("timer").innerText = timerValue;
-    
-            timerInterval = setInterval(() => {
-                timerValue--;
-                document.getElementById("timer").innerText = timerValue;
-                socket.send(JSON.stringify({ type: "update_timer", timer: timerValue }));
-    
-                if (timerValue <= 0) {
-                    clearInterval(timerInterval);
-                    minusLife();
-                }
-            }, 1000);
-        }
-    
-        // Reset Timer
-        function resetTimer() {
-            clearInterval(timerInterval);
-            document.getElementById("timer").innerText = "3";
-            socket.send(JSON.stringify({ type: "update_timer", timer: 3 }));
-        }
-    
-    </script>
-    
-    
 </body>
 </html>
