@@ -105,95 +105,102 @@
     <div class="answer-grid" id="answers-container"></div>
 
     <script>
-        const socket = new WebSocket("ws://localhost:8080");
-        let currentScore = 0;
-        let answerPoints = {};
+const socket = new WebSocket("ws://localhost:8080");
+let currentScore = 0;
+let answerPoints = {};
+let multiplier = 1; // Default to 1x multiplier
 
-        socket.onopen = function () {
-            console.log("✅ Connected to WebSocket server as Monitor 3");
-            socket.send(JSON.stringify({ type: "register", clientId: "monitor3" }));
-        };
+socket.onopen = function () {
+    console.log("✅ Connected to WebSocket server as Monitor 3");
+    socket.send(JSON.stringify({ type: "register", clientId: "monitor3" }));
+};
 
-        socket.onmessage = function (event) {
-            let data = JSON.parse(event.data);
+socket.onmessage = function (event) {
+    let data = JSON.parse(event.data);
 
-            if (data.type === "strike") {
-                showStrikeIndicator(data.remainingStrikes);
-            }
+    if (data.type === "strike") {
+        showStrikeIndicator(data.remainingStrikes);
+    }
 
-            if (data.type === "question_selected") {
-                let answersContainer = document.getElementById("answers-container");
-                answersContainer.innerHTML = "";
-                answerPoints = {};
-                currentScore = 0;
-                document.getElementById("totalScore").innerText = "0";
-                document.getElementById("xIndicator").innerHTML = "";
+    if (data.type === "question_selected") {
+        let answersContainer = document.getElementById("answers-container");
+        answersContainer.innerHTML = "";
+        answerPoints = {};
+        currentScore = 0;
+        document.getElementById("totalScore").innerText = "0";
+        document.getElementById("xIndicator").innerHTML = "";
 
-                data.answers.forEach((answer, index) => {
-                    let points = parseInt(data.points[index], 10);
-                    answerPoints[answer] = points;
+        // ✅ Capture the multiplier from the server
+        multiplier = data.multiplier || 1;
+        console.log(`🆕 Round Multiplier Updated: x${multiplier}`);
 
-                    let flipContainer = document.createElement("div");
-                    flipContainer.classList.add("flip-container");
+        data.answers.forEach((answer, index) => {
+            let points = parseInt(data.points[index], 10);
+            answerPoints[answer] = points;
 
-                    let flipCard = document.createElement("div");
-                    flipCard.classList.add("flip-card");
-                    flipCard.id = `answer-${answer.replace(/\s+/g, "-")}`;
-                    flipCard.innerHTML = `<span>${index + 1}</span>`;
+            let flipContainer = document.createElement("div");
+            flipContainer.classList.add("flip-container");
 
-                    let pointsContainer = document.createElement("div");
-                    pointsContainer.classList.add("points-container");
-                    pointsContainer.id = `points-${answer.replace(/\s+/g, "-")}`;
-                    pointsContainer.innerText = points;
+            let flipCard = document.createElement("div");
+            flipCard.classList.add("flip-card");
+            flipCard.id = `answer-${answer.replace(/\s+/g, "-")}`;
+            flipCard.innerHTML = `<span>${index + 1}</span>`;
 
-                    flipContainer.appendChild(flipCard);
-                    flipContainer.appendChild(pointsContainer);
-                    answersContainer.appendChild(flipContainer);
-                });
-            }
+            let pointsContainer = document.createElement("div");
+            pointsContainer.classList.add("points-container");
+            pointsContainer.id = `points-${answer.replace(/\s+/g, "-")}`;
+            pointsContainer.innerText = points * multiplier; // ✅ Apply multiplier to displayed points
 
-            if (data.type === "answer_selected") {
-                console.log(`🎯 Answer Revealed: ${data.answer}`);
-                let flipCard = document.getElementById(`answer-${data.answer.replace(/\s+/g, "-")}`);
-                let pointsContainer = document.getElementById(`points-${data.answer.replace(/\s+/g, "-")}`);
+            flipContainer.appendChild(flipCard);
+            flipContainer.appendChild(pointsContainer);
+            answersContainer.appendChild(flipContainer);
+        });
+    }
 
-                if (flipCard) {
-                    flipCard.classList.add("flipped");
-                    flipCard.innerHTML = `<span>${data.answer}</span>`;
-                    pointsContainer.style.display = "flex";
+    if (data.type === "answer_selected") {
+        console.log(`🎯 Answer Revealed: ${data.answer}`);
+        let flipCard = document.getElementById(`answer-${data.answer.replace(/\s+/g, "-")}`);
+        let pointsContainer = document.getElementById(`points-${data.answer.replace(/\s+/g, "-")}`);
 
-                    let points = answerPoints[data.answer] || 0;
-                    animateScoreUpdate(currentScore, currentScore + points);
-                    currentScore += points;
-                }
-            }
+        if (flipCard) {
+            flipCard.classList.add("flipped");
+            flipCard.innerHTML = `<span>${data.answer}</span>`;
+            pointsContainer.style.display = "flex";
 
-            if (data.type === "update_x") {
-                document.getElementById("xIndicator").innerHTML = "❌ ".repeat(data.xCount);
-            }
-            
-        };
+            let basePoints = answerPoints[data.answer] || 0;
+            let finalPoints = basePoints * multiplier; // ✅ Apply multiplier to final score calculation
 
-        function animateScoreUpdate(start, end) {
-            let duration = 1000;
-            let startTime = null;
-
-            function step(timestamp) {
-                if (!startTime) startTime = timestamp;
-                let progress = (timestamp - startTime) / duration;
-                let animatedValue = Math.floor(start + (end - start) * progress);
-
-                document.getElementById("totalScore").innerText = animatedValue;
-
-                if (progress < 1) {
-                    requestAnimationFrame(step);
-                } else {
-                    document.getElementById("totalScore").innerText = end;
-                }
-            }
-
-            requestAnimationFrame(step);
+            animateScoreUpdate(currentScore, currentScore + finalPoints);
+            currentScore += finalPoints;
         }
-    </script>
+    }
+
+    if (data.type === "update_x") {
+        document.getElementById("xIndicator").innerHTML = "❌ ".repeat(data.xCount);
+    }
+};
+
+function animateScoreUpdate(start, end) {
+    let duration = 1000;
+    let startTime = null;
+
+    function step(timestamp) {
+        if (!startTime) startTime = timestamp;
+        let progress = (timestamp - startTime) / duration;
+        let animatedValue = Math.floor(start + (end - start) * progress);
+
+        document.getElementById("totalScore").innerText = animatedValue;
+
+        if (progress < 1) {
+            requestAnimationFrame(step);
+        } else {
+            document.getElementById("totalScore").innerText = end;
+        }
+    }
+
+    requestAnimationFrame(step);
+}
+</script>
+    
 </body>
 </html>
